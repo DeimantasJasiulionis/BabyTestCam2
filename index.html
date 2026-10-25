@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0f17">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Baby Monitor</title>
+<style>
+  /* Layout: one column, three screens (home, camera, monitor). Dark on purpose: it gets used in a dark room. */
+  :root {
+    --bg: #0b0f17;
+    --surface: #131a27;
+    --surface-2: #1b2434;
+    --line: #2a3548;
+    --fg: #e8ecf4;
+    --muted: #8e9ab2;
+    --accent: #f2b76b;      /* lamp amber */
+    --accent-ink: #201605;
+    --ok: #62d6a4;
+    --warn: #f2b76b;
+    --bad: #ff7d7d;
+    --font: ui-rounded, "SF Pro Rounded", "Nunito", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font);
+    font-size: 16px;
+    line-height: 1.45;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .screen {
+    max-width: 520px;
+    min-height: 100dvh;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    padding-top: max(24px, env(safe-area-inset-top, 0px));
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+  }
+
+  h1, h2 { margin: 0; line-height: 1.15; text-wrap: balance; }
+  h1 { font-size: 32px; letter-spacing: -0.01em; }
+  h2 { font-size: 26px; }
+  p { margin: 0; }
+  .lede { color: var(--muted); font-size: 17px; max-width: 34ch; }
+  .label { display: block; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  button { font: inherit; color: inherit; cursor: pointer; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  .btn {
+    min-height: 52px;
+    padding: 0 20px;
+    border-radius: 14px;
+    border: 1px solid transparent;
+    font-weight: 700;
+    font-size: 16px;
+  }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); }
+  .btn.primary:disabled { background: var(--surface-2); color: var(--muted); cursor: not-allowed; }
+  .btn.secondary { background: var(--surface-2); border-color: var(--line); }
+  .btn.ghost { background: transparent; border-color: var(--line); color: var(--muted); }
+  .btn:active:not(:disabled) { transform: translateY(1px); }
+
+  /* Home */
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 34px; height: 34px; color: var(--accent); flex: none; }
+
+  .roles { display: grid; gap: 12px; }
+  .role {
+    display: flex; align-items: center; gap: 16px;
+    width: 100%;
+    padding: 18px;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+  }
+  .role:active { background: var(--surface-2); }
+  .role-icon {
+    flex: none; width: 52px; height: 52px; border-radius: 16px;
+    display: grid; place-items: center;
+    background: var(--surface-2); color: var(--accent);
+  }
+  .role-icon svg { width: 28px; height: 28px; }
+  .role-text { display: grid; gap: 2px; min-width: 0; }
+  .role-text strong { font-size: 18px; }
+  .role-text small { color: var(--muted); font-size: 14px; }
+
+  .steps { margin: 0; padding-left: 22px; color: var(--muted); display: grid; gap: 6px; }
+  .steps li::marker { color: var(--accent); font-weight: 700; }
+
+  /* Status pill */
+  .pill {
+    display: inline-flex; align-items: center; gap: 9px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: 14px; font-weight: 600;
+    min-width: 0;
+  }
+  .pill span:last-child { overflow-wrap: anywhere; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--warn); flex: none; }
+  .pill[data-state="ready"] .dot { background: var(--ok); }
+  .pill[data-state="live"] .dot { background: var(--ok); animation: pulse 2s infinite; }
+  .pill[data-state="bad"] .dot { background: var(--bad); }
+  .pill[data-state="wait"] .dot { animation: blink 1.2s infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(98, 214, 164, 0.55); }
+    70% { box-shadow: 0 0 0 9px rgba(98, 214, 164, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(98, 214, 164, 0); }
+  }
+  @keyframes blink { 50% { opacity: 0.25; } }
+
+  /* Camera screen */
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .bar .btn { min-height: 44px; padding: 0 16px; }
+  .codeblock { display: grid; gap: 6px; }
+  .code {
+    font-size: clamp(44px, 15vw, 68px);
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    line-height: 1.05;
+  }
+  .hint { color: var(--muted); font-size: 14px; }
+  .preview-wrap { border-radius: 18px; overflow: hidden; background: #000; border: 1px solid var(--line); }
+  #preview { display: block; width: 100%; max-height: 36dvh; object-fit: cover; background: #000; }
+  .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .actions .btn { width: 100%; }
+  .note { color: var(--muted); font-size: 14px; }
+  .msg { padding: 12px 14px; border-radius: 12px; background: rgba(255, 125, 125, 0.12); border: 1px solid rgba(255, 125, 125, 0.4); color: #ffd0d0; font-size: 15px; }
+
+  /* Monitor setup */
+  .back { align-self: flex-start; background: none; border: 0; color: var(--muted); padding: 8px 0; font-weight: 600; font-size: 15px; }
+  form { display: grid; gap: 12px; }
+  .codeinput {
+    width: 100%;
+    min-height: 72px;
+    padding: 0 18px;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--accent);
+    font: 800 38px/1 var(--font);
+    letter-spacing: 0.1em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .codeinput::placeholder { color: var(--line); }
+
+  /* Monitor live */
+  #monLive { position: fixed; inset: 0; z-index: 20; background: #000; }
+  #remote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+  .hold {
+    position: absolute; inset: 0;
+    display: grid; place-items: center;
+    padding: 0 32px;
+    background: #000;
+    color: var(--muted);
+    text-align: center;
+    font-size: 18px;
+  }
+  .live-top, .live-bottom {
+    position: absolute; left: 0; right: 0;
+    display: flex; align-items: center; gap: 12px;
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+  }
+  .live-top {
+    top: 0; justify-content: space-between;
+    padding-top: max(14px, env(safe-area-inset-top, 0px));
+    padding-bottom: 28px;
+    background: linear-gradient(rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0));
+  }
+  .live-bottom {
+    bottom: 0; justify-content: center;
+    padding-top: 40px;
+    padding-bottom: max(18px, env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.65));
+  }
+  .live-top .pill { background: rgba(11, 15, 23, 0.72); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  .live-top .btn { background: rgba(11, 15, 23, 0.72); min-height: 40px; padding: 0 14px; font-size: 14px; }
+
+  .sound {
+    display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+    min-height: 68px; min-width: 200px;
+    padding: 0 30px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: rgba(19, 26, 39, 0.88);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    font-size: 19px; font-weight: 700;
+  }
+  .sound svg { width: 28px; height: 28px; flex: none; }
+  .sound .ico-off { display: none; }
+  .sound.is-muted { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .sound.is-muted .ico-on { display: none; }
+  .sound.is-muted .ico-off { display: inline; }
+
+  #toast {
+    position: fixed; z-index: 50;
+    left: 50%; transform: translateX(-50%);
+    bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    max-width: calc(100% - 40px);
+    padding: 12px 18px;
+    border-radius: 999px;
+    background: var(--fg); color: var(--bg);
+    font-weight: 600; font-size: 15px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dot { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Home -->
+<main id="home" class="screen">
+  <header class="brand">
+    <svg class="logo" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 14.2A8.6 8.6 0 0 1 9.8 3.5a8.6 8.6 0 1 0 10.7 10.7z" fill="currentColor"/></svg>
+    <h1>Baby Monitor</h1>
+  </header>
+  <p class="lede">Two phones, one camera and one monitor. Video and sound are encrypted between them.</p>
+
+  <div class="roles">
+    <button class="role" id="roleCam" type="button">
+      <span class="role-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.2l1-1.5h6.6l1 1.5h1.2A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><circle cx="12" cy="12.5" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+      </span>
+      <span class="role-text"><strong>This phone is the camera</strong><small>Leave it in the baby’s room, plugged in</small></span>
+    </button>
+    <button class="role" id="roleMon" type="button">
+      <span class="role-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="2.8" width="12" height="18.4" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.6 9.2v5.6l4.4-2.8z" fill="currentColor"/></svg>
+      </span>
+      <span class="role-text"><strong>This phone is the monitor</strong><small>Watch and listen from here</small></span>
+    </button>
+  </div>
+
+  <ol class="steps">
+    <li>Open this page on both phones.</li>
+    <li>On the camera phone, start the camera. It shows a 6-digit code.</li>
+    <li>On the monitor phone, type that code.</li>
+  </ol>
+</main>
+
+<!-- Camera -->
+<main id="cam" class="screen" hidden>
+  <div class="bar">
+    <span class="pill" id="camPill" data-state="wait"><i class="dot"></i><span id="camStatus">Starting camera…</span></span>
+    <button class="btn ghost" id="camStop" type="button">Stop</button>
+  </div>
+
+  <div class="codeblock">
+    <span class="label">Pairing code</span>
+    <div class="code" id="camCode" aria-live="polite">––– –––</div>
+    <p class="hint">Type this code on the monitor phone.</p>
+  </div>
+
+  <div class="preview-wrap"><video id="preview" autoplay muted playsinline></video></div>
+
+  <p class="msg" id="camMsg" role="alert" hidden></p>
+
+  <div class="actions">
+    <button class="btn primary" id="shareBtn" type="button">Share link</button>
+    <button class="btn secondary" id="flipBtn" type="button">Switch camera</button>
+    <button class="btn secondary" id="camRetry" type="button" hidden>Try again</button>
+  </div>
+
+  <p class="note">Keep this phone plugged in with this page open. The screen stays on while the camera runs.</p>
+</main>
+
+<!-- Monitor -->
+<main id="mon" class="screen" hidden>
+  <section id="monSetup" style="display:grid;gap:20px">
+    <button class="back" id="monBack" type="button">Back</button>
+    <h2>Connect to the camera</h2>
+    <p class="lede">Type the 6-digit code shown on the camera phone.</p>
+    <form id="codeForm" autocomplete="off">
+      <label class="label" for="codeInput">Camera code</label>
+      <input id="codeInput" class="codeinput" type="text" inputmode="numeric" enterkeyhint="go" pattern="[0-9 ]*" maxlength="7" placeholder="000 000" autocomplete="off" autocorrect="off" spellcheck="false">
+      <button class="btn primary" id="connectBtn" type="submit" disabled>Connect</button>
+    </form>
+  </section>
+
+  <section id="monLive" hidden>
+    <video id="remote" autoplay muted playsinline></video>
+    <div class="hold" id="monHold"><span id="monHoldText">Looking for the camera…</span></div>
+    <div class="live-top">
+      <span class="pill" id="monPill" data-state="wait"><i class="dot"></i><span id="monStatus">Looking for the camera…</span></span>
+      <button class="btn ghost" id="monStop" type="button">Disconnect</button>
+    </div>
+    <div class="live-bottom">
+      <button class="sound" id="soundBtn" type="button" aria-label="Mute">
+        <svg class="ico-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.8l5.2 4.2V5.3L7.8 9.5z" fill="currentColor"/><path d="M16.3 8.6a4.6 4.6 0 0 1 0 6.8M18.8 6.2a8 8 0 0 1 0 11.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <svg class="ico-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5v5h3.8l5.2 4.2V5.3L7.8 9.5z" fill="currentColor"/><path d="M16.5 9.5l5 5M21.5 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        <span id="soundLabel">Sound on</span>
+      </button>
+    </div>
+  </section>
+</main>
+
+<div id="toast" role="status" hidden></div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* ---------- Settings ---------- */
+
+  // Codes are turned into a PeerJS id with this prefix, so they never clash with other PeerJS apps.
+  var PREFIX = "babycam-v1-";
+
+  // STUN servers help the phones find each other. If the phones are on different networks
+  // (for example one on mobile data) and the connection fails, add a TURN server below.
+  var ICE_SERVERS = [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" }
+    // , { urls: "turn:YOUR_TURN_HOST:3478", username: "USER", credential: "PASSWORD" }
+  ];
+
+  // Uses the free PeerJS cloud server by default. To use your own PeerServer, add:
+  // host: "your.server.com", port: 443, path: "/", secure: true
+  var PEER_OPTIONS = { config: { iceServers: ICE_SERVERS, sdpSemantics: "unified-plan" } };
+
+  /* ---------- Helpers ---------- */
+
+  var $ = function (id) { return document.getElementById(id); };
+  var screens = { home: $("home"), cam: $("cam"), mon: $("mon") };
+
+  function show(name) {
+    Object.keys(screens).forEach(function (k) { screens[k].hidden = k !== name; });
+    window.scrollTo(0, 0);
+  }
+
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $("toast");
+    t.textContent = msg;
+    t.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.hidden = true; }, 2600);
+  }
+
+  function setPill(pillId, textId, state, text) {
+    $(pillId).dataset.state = state;
+    $(textId).textContent = text;
+  }
+
+  function randomCode() {
+    var a = new Uint32Array(1);
+    crypto.getRandomValues(a);
+    return String(100000 + (a[0] % 900000));
+  }
+  function fmt(code) { return code.slice(0, 3) + " " + code.slice(3); }
+  function cleanCode(s) { return String(s || "").replace(/\D/g, "").slice(0, 6); }
+  function libraryReady() { return typeof Peer === "function"; }
+
+  function describeMediaError(e) {
+    var name = e && e.name;
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      return "Camera or microphone access was blocked. Allow both for this page in your browser settings, then tap Try again.";
+    }
+    if (name === "NotFoundError" || name === "OverconstrainedError") {
+      return "No camera or microphone was found on this phone.";
+    }
+    if (name === "NotReadableError" || name === "AbortError") {
+      return "Another app is using the camera or microphone. Close it, then tap Try again.";
+    }
+    return "The camera could not start" + (name ? " (" + name + ")" : "") + ". Tap Try again.";
+  }
+
+  /* ---------- Keep the screen awake ---------- */
+
+  var wakeLock = null;
+  var wantWake = false;
+
+  async function acquireWake() {
+    wantWake = true;
+    try {
+      if ("wakeLock" in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request("screen");
+        wakeLock.addEventListener("release", function () { wakeLock = null; });
+      }
+    } catch (e) { wakeLock = null; }
+  }
+  function releaseWake() {
+    wantWake = false;
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+  }
+
+  /* ---------- Camera phone ---------- */
+
+  var cam = {
+    active: false, peer: null, stream: null, code: null, facing: "environment",
+    conns: new Map(), calls: new Map(), pingTimer: null, retryTimer: null, restarting: false
+  };
+
+  function getStream(facing) {
+    return navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 24 } },
+      // Raw sound works best for a baby: no echo cancelling or noise suppression, but boost quiet sounds.
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: true }
+    });
+  }
+
+  function camError(msg) {
+    setPill("camPill", "camStatus", "bad", "Not running");
+    var m = $("camMsg");
+    m.textContent = msg;
+    m.hidden = false;
+    $("camRetry").hidden = false;
+  }
+
+  function updateCamStatus() {
+    var n = cam.conns.size;
+    if (n > 0) {
+      setPill("camPill", "camStatus", "live", n === 1 ? "1 monitor watching" : n + " monitors watching");
+    } else if (cam.peer && cam.peer.open) {
+      setPill("camPill", "camStatus", "ready", "Ready. Waiting for the monitor");
+    } else {
+      setPill("camPill", "camStatus", "wait", "Connecting…");
+    }
+  }
+
+  function teardownCamera() {
+    cam.active = false;
+    clearInterval(cam.pingTimer); cam.pingTimer = null;
+    clearTimeout(cam.retryTimer); cam.retryTimer = null;
+    cam.conns.forEach(function (c) { try { c.close(); } catch (e) {} });
+    cam.conns.clear();
+    cam.calls.clear();
+    var p = cam.peer;
+    cam.peer = null;
+    if (p) { try { p.destroy(); } catch (e) {} }
+    if (cam.stream) { cam.stream.getTracks().forEach(function (t) { t.stop(); }); cam.stream = null; }
+    $("preview").srcObject = null;
+  }
+
+  async function startCamera() {
+    teardownCamera();
+    show("cam");
+    $("camMsg").hidden = true;
+    $("camRetry").hidden = true;
+    $("camCode").textContent = cam.code ? fmt(cam.code) : "––– –––";
+    setPill("camPill", "camStatus", "wait", "Starting camera…");
+
+    if (!libraryReady()) {
+      camError("The connection library did not load. Check your internet connection and reload the page.");
+      return;
+    }
+    if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      camError("The camera only works when this page is opened with https://. Host the file on an https address.");
+      return;
+    }
+    try {
+      cam.stream = await getStream(cam.facing);
+    } catch (e) {
+      camError(describeMediaError(e));
+      return;
+    }
+    cam.active = true;
+    $("preview").srcObject = cam.stream;
+    acquireWake();
+    openCamPeer();
+    cam.pingTimer = setInterval(function () {
+      cam.conns.forEach(function (c) { if (c.open) { try { c.send({ t: "ping" }); } catch (e) {} } });
+      checkCameraAlive();
+    }, 5000);
+  }
+
+  function openCamPeer() {
+    if (!cam.active) return;
+    if (!cam.code) cam.code = randomCode();
+    var peer = new Peer(PREFIX + cam.code, PEER_OPTIONS);
+    cam.peer = peer;
+    var current = function () { return cam.active && cam.peer === peer; };
+
+    peer.on("open", function () {
+      if (!current()) return;
+      $("camCode").textContent = fmt(cam.code);
+      updateCamStatus();
+    });
+    peer.on("connection", function (conn) {
+      if (current()) onMonitorConnection(conn); else { try { conn.close(); } catch (e) {} }
+    });
+    peer.on("disconnected", function () {
+      if (!current()) return;
+      updateCamStatus();
+      setTimeout(function () {
+        if (current() && peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch (e) {} }
+      }, 2000);
+    });
+    peer.on("close", function () {
+      if (!current()) return;
+      cam.peer = null;
+      cam.conns.clear();
+      cam.calls.clear();
+      setPill("camPill", "camStatus", "wait", "Reconnecting…");
+      cam.retryTimer = setTimeout(openCamPeer, 3000);
+    });
+    peer.on("error", function (err) {
+      if (!current()) return;
+      // The code is taken (rare): drop it so the next attempt picks a new one.
+      if (err.type === "unavailable-id") cam.code = null;
+      // Other errors end in "disconnected" or "close", which retry above.
+    });
+  }
+
+  function onMonitorConnection(conn) {
+    conn.on("open", function () {
+      if (!cam.active || !cam.peer) return;
+      cam.conns.set(conn.peer, conn);
+      var call = cam.peer.call(conn.peer, cam.stream);
+      cam.calls.set(conn.peer, call);
+      call.on("close", function () {
+        if (cam.calls.get(conn.peer) === call) cam.calls.delete(conn.peer);
+      });
+      call.on("error", function () {});
+      updateCamStatus();
+    });
+    var drop = function () {
+      if (cam.conns.get(conn.peer) === conn) {
+        cam.conns.delete(conn.peer);
+        var call = cam.calls.get(conn.peer);
+        if (call) { try { call.close(); } catch (e) {} cam.calls.delete(conn.peer); }
+        updateCamStatus();
+      }
+    };
+    conn.on("close", drop);
+    conn.on("error", drop);
+  }
+
+  // Swap in a new camera/microphone stream and push its tracks to every monitor.
+  async function restartStream(facing) {
+    if (cam.stream) cam.stream.getTracks().forEach(function (t) { t.stop(); });
+    var fresh;
+    try {
+      fresh = await getStream(facing);
+      cam.facing = facing;
+    } catch (e) {
+      if (facing !== cam.facing) {
+        try { fresh = await getStream(cam.facing); }
+        catch (e2) { camError(describeMediaError(e2)); return false; }
+      } else {
+        camError(describeMediaError(e));
+        return false;
+      }
+    }
+    cam.stream = fresh;
+    $("preview").srcObject = fresh;
+    cam.calls.forEach(function (call) {
+      var pc = call.peerConnection;
+      if (!pc) return;
+      pc.getTransceivers().forEach(function (t) {
+        var kind = t.receiver && t.receiver.track && t.receiver.track.kind;
+        var track = kind && fresh.getTracks().find(function (x) { return x.kind === kind; });
+        if (track) t.sender.replaceTrack(track).catch(function () {});
+      });
+    });
+    return true;
+  }
+
+  async function checkCameraAlive() {
+    if (!cam.active || cam.restarting || !cam.stream) return;
+    if (document.visibilityState !== "visible") return;
+    var ended = cam.stream.getTracks().some(function (t) { return t.readyState === "ended"; });
+    if (!ended) return;
+    cam.restarting = true;
+    try { await restartStream(cam.facing); } finally { cam.restarting = false; }
+  }
+
+  function stopCamera() {
+    teardownCamera();
+    cam.code = null;
+    releaseWake();
+    show("home");
+  }
+
+  async function shareLink() {
+    if (!cam.code) { toast("The code is not ready yet"); return; }
+    var u = new URL(location.href);
+    u.search = "";
+    u.hash = "";
+    u.searchParams.set("code", cam.code);
+    var url = u.toString();
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Baby Monitor", text: "Open this on the monitor phone", url: url });
+        return;
+      }
+    } catch (e) {
+      if (e && e.name === "AbortError") return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast("Link copied");
+    } catch (e) {
+      toast("Could not copy. Type the code instead.");
+    }
+  }
+
+  /* ---------- Monitor phone ---------- */
+
+  var mon = {
+    active: false, code: null, gen: 0,
+    peer: null, conn: null, call: null,
+    linked: false, hasVideo: false, startedAt: 0, lastBeat: 0,
+    retryTimer: null, watchdog: null,
+    muted: false, blocked: false
+  };
+
+  function setMonStatus(state, msg) {
+    setPill("monPill", "monStatus", state, msg);
+    $("monHoldText").textContent = msg;
+  }
+
+  function syncSound() {
+    var b = $("soundBtn");
+    b.classList.toggle("is-muted", mon.muted);
+    b.setAttribute("aria-label", mon.muted ? "Turn sound on" : "Mute");
+    $("soundLabel").textContent = mon.muted ? (mon.blocked ? "Tap for sound" : "Muted") : "Sound on";
+  }
+  function setMuted(m) {
+    mon.muted = m;
+    if (!m) mon.blocked = false;
+    $("remote").muted = m;
+    syncSound();
+  }
+
+  function teardownMonitorLink() {
+    clearTimeout(mon.retryTimer);
+    mon.retryTimer = null;
+    var call = mon.call, conn = mon.conn, peer = mon.peer;
+    mon.call = null; mon.conn = null; mon.peer = null;
+    mon.linked = false; mon.hasVideo = false;
+    try { if (call) call.close(); } catch (e) {}
+    try { if (conn) conn.close(); } catch (e) {}
+    try { if (peer) peer.destroy(); } catch (e) {}
+    $("remote").srcObject = null;
+    $("monHold").hidden = false;
+  }
+
+  function scheduleMonRetry(gen) {
+    if (mon.retryTimer) return;
+    mon.retryTimer = setTimeout(function () {
+      mon.retryTimer = null;
+      if (mon.active && gen === mon.gen) connectMonitor();
+    }, 3000);
+  }
+
+  async function attachRemote(stream) {
+    var v = $("remote");
+    if (v.srcObject !== stream) v.srcObject = stream;
+    mon.hasVideo = true;
+    $("monHold").hidden = true;
+    setMonStatus("live", "Live");
+    v.muted = mon.muted;
+    try {
+      await v.play();
+    } catch (e) {
+      // The browser refused to start with sound. Start silent and ask for a tap.
+      if (!v.muted) {
+        mon.muted = true;
+        mon.blocked = true;
+        v.muted = true;
+        syncSound();
+        try { await v.play(); } catch (e2) {}
+      }
+    }
+  }
+
+  function connectMonitor() {
+    var gen = ++mon.gen;
+    teardownMonitorLink();
+    if (!mon.active) return;
+    var stale = function () { return gen !== mon.gen || !mon.active; };
+    mon.startedAt = Date.now();
+    mon.lastBeat = Date.now();
+    setMonStatus("wait", "Looking for the camera…");
+
+    var retry = function (msg) {
+      if (stale()) return;
+      setMonStatus("wait", msg || "Reconnecting…");
+      scheduleMonRetry(gen);
+    };
+
+    var peer = new Peer(PEER_OPTIONS);
+    mon.peer = peer;
+
+    peer.on("open", function () {
+      if (stale()) return;
+      var conn = peer.connect(PREFIX + mon.code, { reliable: true });
+      mon.conn = conn;
+      conn.on("open", function () {
+        if (stale()) return;
+        mon.linked = true;
+        mon.lastBeat = Date.now();
+        setMonStatus("wait", "Connected. Waiting for video…");
+      });
+      conn.on("data", function () { if (!stale()) mon.lastBeat = Date.now(); });
+      conn.on("close", function () { retry("Connection lost. Reconnecting…"); });
+      conn.on("error", function () { retry("Connection lost. Reconnecting…"); });
+    });
+
+    peer.on("call", function (call) {
+      if (stale()) { try { call.close(); } catch (e) {} return; }
+      if (mon.call) { try { mon.call.close(); } catch (e) {} }
+      mon.call = call;
+      call.answer();
+      call.on("stream", function (stream) { if (!stale()) attachRemote(stream); });
+      call.on("close", function () { if (mon.call === call) retry("Camera disconnected. Reconnecting…"); });
+      call.on("error", function () { if (mon.call === call) retry("Connection lost. Reconnecting…"); });
+    });
+
+    peer.on("disconnected", function () {
+      if (stale()) return;
+      // Only the link to the pairing server dropped. Video keeps running, so just rejoin quietly.
+      setTimeout(function () {
+        if (!stale() && peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch (e) {} }
+      }, 1500);
+    });
+    peer.on("close", function () { retry(); });
+    peer.on("error", function (err) {
+      if (stale()) return;
+      if (err.type === "peer-unavailable") {
+        retry("Camera not found. Check the code and make sure the camera is running.");
+      } else {
+        retry("Connection problem. Trying again…");
+      }
+    });
+  }
+
+  function monWatchdog() {
+    if (!mon.active || mon.retryTimer) return;
+    var now = Date.now();
+    // The camera sends a small ping every 5 seconds. No ping for 15 seconds means the link is dead.
+    if (mon.linked && now - mon.lastBeat > 15000) {
+      setMonStatus("wait", "Signal lost. Reconnecting…");
+      connectMonitor();
+      return;
+    }
+    // Stuck while connecting.
+    if (!mon.hasVideo && now - mon.startedAt > 20000) connectMonitor();
+  }
+
+  function openMonitorSetup(prefill) {
+    show("mon");
+    $("monSetup").hidden = false;
+    $("monLive").hidden = true;
+    var code = cleanCode(prefill);
+    if (code.length !== 6) {
+      try { code = cleanCode(localStorage.getItem("babymonitor.code")); } catch (e) { code = ""; }
+    }
+    var input = $("codeInput");
+    input.value = code.length > 3 ? fmt(code) : code;
+    $("connectBtn").disabled = code.length !== 6;
+    if (code.length === 6) $("connectBtn").focus(); else input.focus();
+  }
+
+  function startMonitor(code) {
+    if (!libraryReady()) { toast("The connection library did not load. Reload the page."); return; }
+    mon.code = code;
+    mon.active = true;
+    try { localStorage.setItem("babymonitor.code", code); } catch (e) {}
+    $("monSetup").hidden = true;
+    $("monLive").hidden = false;
+    setMuted(false);
+    acquireWake();
+    connectMonitor();
+    clearInterval(mon.watchdog);
+    mon.watchdog = setInterval(monWatchdog, 3000);
+  }
+
+  function stopMonitor() {
+    mon.active = false;
+    mon.gen++;
+    clearInterval(mon.watchdog);
+    mon.watchdog = null;
+    teardownMonitorLink();
+    releaseWake();
+    openMonitorSetup(mon.code);
+  }
+
+  /* ---------- Wiring ---------- */
+
+  $("roleCam").addEventListener("click", startCamera);
+  $("roleMon").addEventListener("click", function () { openMonitorSetup(""); });
+  $("camStop").addEventListener("click", stopCamera);
+  $("camRetry").addEventListener("click", startCamera);
+  $("shareBtn").addEventListener("click", shareLink);
+  $("flipBtn").addEventListener("click", async function () {
+    if (!cam.active || cam.restarting) return;
+    cam.restarting = true;
+    try { await restartStream(cam.facing === "environment" ? "user" : "environment"); }
+    finally { cam.restarting = false; }
+  });
+
+  $("monBack").addEventListener("click", function () { show("home"); });
+  $("monStop").addEventListener("click", stopMonitor);
+  $("soundBtn").addEventListener("click", function () {
+    setMuted(!mon.muted);
+    var v = $("remote");
+    if (v.srcObject) v.play().catch(function () {});
+  });
+
+  $("codeInput").addEventListener("input", function (e) {
+    var d = cleanCode(e.target.value);
+    e.target.value = d.length > 3 ? fmt(d) : d;
+    $("connectBtn").disabled = d.length !== 6;
+  });
+  $("codeForm").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var d = cleanCode($("codeInput").value);
+    if (d.length === 6) startMonitor(d);
+  });
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "visible") return;
+    if (wantWake) acquireWake();
+    if (cam.active) checkCameraAlive();
+    if (mon.active) {
+      var v = $("remote");
+      if (v.srcObject) v.play().catch(function () {});
+      if (mon.linked && Date.now() - mon.lastBeat > 8000) connectMonitor();
+    }
+  });
+
+  // A link like ?code=123456 opens the monitor screen with the code filled in.
+  var initial = cleanCode(new URLSearchParams(location.search).get("code"));
+  if (initial.length === 6) openMonitorSetup(initial);
+})();
+</script>
+</body>
+</html>
